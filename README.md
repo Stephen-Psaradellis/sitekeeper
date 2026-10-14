@@ -53,6 +53,7 @@ scheduled monitoring, and a summary back to the owner on their issue.
 | `scripts/serve.mjs`, `scripts/smoke.mjs` | pre-production server and the smoke/health check |
 | `.gitlab-ci.yml` | the pipeline above |
 | `.gitlab/duo/flows/` | the two Duo Agent Platform flows (`ship`, `fix`) |
+| `scripts/check_duo_flows.py` | checks both flows against GitLab ai-assist's own flow models and tool list (how to run: its docstring) |
 
 ## Run it locally
 
