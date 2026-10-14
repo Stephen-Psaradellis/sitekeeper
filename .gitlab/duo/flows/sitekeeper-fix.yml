@@ -12,6 +12,7 @@ components:
   - name: "diagnose"
     type: AgentComponent
     prompt_id: "sitekeeper_diagnose"
+    response_schema_id: "sitekeeper_diagnosis"
     inputs:
       - from: "context:goal"
         as: "event"
@@ -48,12 +49,40 @@ components:
       - "create_issue_note"
     ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
 
+response_schemas:
+  - schema_id: "sitekeeper_diagnosis"
+    definition:
+      "$schema": "http://json-schema.org/draft-07/schema#"
+      title: "sitekeeper_diagnosis"
+      type: object
+      properties:
+        cause:
+          type: string
+          enum: ["site_defect", "secret", "sast", "unit_test", "infra"]
+          description: "What made the pipeline fail; infra ends the flow"
+        pipeline_id:
+          type: string
+          description: "The failed pipeline's id"
+        branch:
+          type: string
+          description: "The branch the failed pipeline ran on"
+        file:
+          type: string
+          description: "The file to change (empty for infra)"
+        line:
+          type: integer
+          description: "The line to change (0 when unknown)"
+        summary:
+          type: string
+          description: "What broke and the smallest correct fix, in plain words"
+      required: [cause, pipeline_id, branch, file, summary]
+
 routers:
   - from: "diagnose"
     condition:
-      input: "context:diagnose.final_answer"
+      input: "context:diagnose.final_answer.cause"
       routes:
-        "INFRA": "end"
+        "infra": "end"
         "default_route": "repair"
   - from: "repair"
     to: "end"
@@ -69,15 +98,15 @@ prompts:
       system: |
         A SiteKeeper pipeline failed. List its failing jobs and read their logs.
         Classify the cause and name the exact file and line to change:
-        - sitecheck / preview-verify / live-health: a site defect (untappable phone,
-          phone mismatch between links and JSON-LD, broken link, missing label...).
-        - secret_detection: a credential was committed. The fix removes it from the
-          file; say plainly in the note that the credential must be rotated by its
-          owner, because removing it from the file does not un-leak it.
+        - site_defect (sitecheck / preview-verify / live-health): untappable phone,
+          phone mismatch between links and JSON-LD, broken link, missing label...
+        - secret (secret_detection): a credential was committed. The fix removes it
+          from the file; say plainly in the note that the credential must be rotated
+          by its owner, because removing it from the file does not un-leak it.
         - sast: a code finding in scripts/ or checks/.
-        - unit-tests: a regression in the checker.
-        If the failure is a runner or network outage rather than the code, answer
-        with exactly INFRA (a retry, not a code change, fixes it).
+        - unit_test (unit-tests): a regression in the checker.
+        - infra: a runner or network outage rather than the code (a retry, not a
+          code change, fixes it). Nothing is repaired.
       user: |
         Project: {{project_id}}
         Event: {{event}}

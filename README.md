@@ -71,7 +71,12 @@ node scripts/smoke.mjs http://localhost:8080 --version local
 1. Fork or import this project; Pages publishes on the first default-branch pipeline.
 2. AI > Flows > New flow: paste `.gitlab/duo/flows/sitekeeper-ship.yml`, enable it in
    the project, add the assign/mention trigger. Repeat for `sitekeeper-fix.yml` with
-   the pipeline-failed trigger.
+   the pipeline-failed trigger. Both flows run on the default flow image (git, glab
+   and Node 20 are in it; `glab` picks up the flow's `GITLAB_TOKEN`), so no
+   `agent-config.yml` is needed. Each flow's first agent answers in a small JSON
+   schema (`response_schemas`), and the router reads one enum field from it
+   (`scope`, `cause`), so a stray word in a free-text answer cannot send an
+   out-of-scope request or a runner outage into the build/repair agent.
 3. Build > Pipeline schedules: a daily schedule on the default branch runs `monitor-live`.
 4. Open an issue such as "Our new phone number is 217-555-0199" and assign it to the
    `ship` flow's service account.

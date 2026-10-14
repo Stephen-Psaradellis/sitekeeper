@@ -15,6 +15,7 @@ components:
   - name: "triage"
     type: AgentComponent
     prompt_id: "sitekeeper_triage"
+    response_schema_id: "sitekeeper_plan"
     inputs:
       - from: "context:goal"
         as: "request"
@@ -50,12 +51,35 @@ components:
       - "create_issue_note"
     ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
 
+response_schemas:
+  - schema_id: "sitekeeper_plan"
+    definition:
+      "$schema": "http://json-schema.org/draft-07/schema#"
+      title: "sitekeeper_plan"
+      type: object
+      properties:
+        scope:
+          type: string
+          enum: ["website_change", "out_of_scope"]
+          description: "out_of_scope ends the flow; a person answers the owner"
+        issue_iid:
+          type: integer
+          description: "The issue number the request came from"
+        files:
+          type: array
+          items: { type: string }
+          description: "Every file the change touches"
+        plan:
+          type: string
+          description: "The exact new text and every place the same fact appears"
+      required: [scope, issue_iid, files, plan]
+
 routers:
   - from: "triage"
     condition:
-      input: "context:triage.final_answer"
+      input: "context:triage.final_answer.scope"
       routes:
-        "OUT_OF_SCOPE": "end"
+        "out_of_scope": "end"
         "default_route": "build"
   - from: "build"
     to: "end"
@@ -79,7 +103,7 @@ prompts:
         Post the plan as a note on the issue in plain words the owner understands.
         If the request is not a website change (a refund, a legal question, anything
         that needs the owner's judgement), post a note saying a person will pick it
-        up and answer with exactly OUT_OF_SCOPE.
+        up and set scope to out_of_scope; otherwise scope is website_change.
       user: |
         Project: {{project_id}}
         Request: {{request}}
