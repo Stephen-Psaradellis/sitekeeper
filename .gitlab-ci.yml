@@ -5,6 +5,12 @@
 
 stages: [test, build, verify, deploy, monitor]
 
+# The workflow below runs MR pipelines instead of branch pipelines whenever an
+# MR is open, and GitLab's Secret Detection and SAST templates skip MR pipelines
+# unless this is "true" - without it the MRs the Duo flow opens are never scanned.
+variables:
+  AST_ENABLE_MR_PIPELINES: "true"
+
 default:
   image: node:22-alpine
   interruptible: true
