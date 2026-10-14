@@ -1,0 +1,152 @@
+# SiteKeeper pipeline: every change to a small-business site is tested, scanned,
+# verified on a production-identical server, deployed, health-checked live, and
+# rolled back on its own if the live check fails. The Duo flows in .gitlab/duo/
+# open the merge requests and fix what this pipeline finds.
+
+stages: [test, build, verify, deploy, monitor]
+
+default:
+  image: node:22-alpine
+  interruptible: true
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+
+include:
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+  - template: Jobs/SAST.gitlab-ci.yml
+
+.not_scheduled:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+
+unit-tests:
+  stage: test
+  extends: .not_scheduled
+  script:
+    - node --test checks/sitecheck.test.mjs --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=unit.xml
+  artifacts:
+    when: always
+    reports:
+      junit: unit.xml
+
+# The defects that cost a local business calls: untappable phones, missing
+# viewport, broken JSON-LD, mixed content, unlabelled form fields, dead links.
+# Findings land inline in the MR (Code Quality) and per page (test report).
+sitecheck:
+  stage: test
+  extends: .not_scheduled
+  script:
+    - node checks/sitecheck.mjs site --format codequality --out gl-code-quality-report.json || true
+    - node checks/sitecheck.mjs site --format junit --out sitecheck.xml || true
+    - node checks/sitecheck.mjs site
+  artifacts:
+    when: always
+    paths: [gl-code-quality-report.json]
+    reports:
+      junit: sitecheck.xml
+      codequality: gl-code-quality-report.json
+
+build:
+  stage: build
+  extends: .not_scheduled
+  script:
+    - node scripts/build.mjs site public
+  artifacts:
+    paths: [public]
+    expire_in: 30 days
+
+# Pre-production: serve the exact build artifact the way Pages will, then
+# smoke-test it and re-run sitecheck on the built output.
+preview-verify:
+  stage: verify
+  extends: .not_scheduled
+  needs: [build]
+  script:
+    - node scripts/serve.mjs public 8080 &
+    - sleep 1
+    - node scripts/smoke.mjs http://localhost:8080 --version "$CI_COMMIT_SHORT_SHA" --junit smoke-preview.xml
+    - node checks/sitecheck.mjs public
+  artifacts:
+    when: always
+    reports:
+      junit: smoke-preview.xml
+
+pages:
+  stage: deploy
+  needs: [build, preview-verify]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - echo "deploying $CI_COMMIT_SHORT_SHA to $CI_PAGES_URL"
+  artifacts:
+    paths: [public]
+  environment:
+    name: production
+    url: $CI_PAGES_URL
+
+# Live health check: waits for Pages to publish this commit, then proves every
+# page answers 200 with this build's version and a tappable phone link.
+live-health:
+  stage: monitor
+  needs: [pages]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - node scripts/smoke.mjs "$CI_PAGES_URL" --version "$CI_COMMIT_SHORT_SHA" --wait 300 --junit smoke-live.xml
+  artifacts:
+    when: always
+    reports:
+      junit: smoke-live.xml
+
+# Automatic rollback: if the live check fails, rebuild the previous commit's site
+# and publish it, so the business is never left on a broken page while the fixer
+# flow works on the cause.
+rollback:
+  stage: monitor
+  needs: [live-health]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_failure
+  variables:
+    GIT_DEPTH: "0"
+  pages: true
+  before_script:
+    - apk add --no-cache git
+  script:
+    - export CI_COMMIT_SHORT_SHA=$(git rev-parse --short HEAD~1)
+    - git checkout HEAD~1 -- site
+    - node scripts/build.mjs site public
+    - echo "rolled back to $CI_COMMIT_SHORT_SHA"
+  artifacts:
+    paths: [public]
+  environment:
+    name: production
+    url: $CI_PAGES_URL
+
+# Daily monitoring (Build > Pipeline schedules): re-check the live site.
+monitor-live:
+  stage: monitor
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - node checks/sitecheck.mjs site
+    - export LIVE=$(wget -qO- "$CI_PAGES_URL/version.txt" | tr -d '[:space:]')
+    - node scripts/smoke.mjs "$CI_PAGES_URL" --version "$LIVE" --junit smoke-monitor.xml
+  artifacts:
+    when: always
+    reports:
+      junit: smoke-monitor.xml

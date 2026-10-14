@@ -1,0 +1,4 @@
+public/
+node_modules/
+*.xml
+gl-code-quality-report.json

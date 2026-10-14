@@ -1,0 +1,115 @@
+# SiteKeeper - ship: a site owner writes an issue in plain words, and the
+# change goes live with nobody in the middle.
+#
+# Trigger: assign the issue to (or mention) this flow's service account.
+# Path:   triage -> build (branch, edit, local sitecheck, MR, auto-merge)
+#         -> the pipeline tests, scans, verifies, deploys, health-checks and
+#            rolls back on its own (.gitlab-ci.yml)
+#         -> sitekeeper-fix.yml takes over if any pipeline fails.
+# Register: AI > Flows > New flow, paste this file, enable it with the
+# "Work item created" / assign / mention triggers.
+version: "v1"
+environment: ambient
+
+components:
+  - name: "triage"
+    type: AgentComponent
+    prompt_id: "sitekeeper_triage"
+    inputs:
+      - from: "context:goal"
+        as: "request"
+      - from: "context:project_id"
+        as: "project_id"
+    max_cycles: 12
+    toolset:
+      - "get_issue"
+      - "list_issue_notes"
+      - "get_repository_file"
+      - "list_repository_tree"
+      - "create_issue_note"
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
+
+  - name: "build"
+    type: AgentComponent
+    prompt_id: "sitekeeper_build"
+    inputs:
+      - from: "context:goal"
+        as: "request"
+      - from: "context:triage.final_answer"
+        as: "plan"
+    max_cycles: 40
+    toolset:
+      - "read_file"
+      - "list_dir"
+      - "find_files"
+      - "edit_file"
+      - "create_file_with_contents"
+      - "run_command"
+      - "run_git_command"
+      - "create_merge_request"
+      - "create_issue_note"
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
+
+routers:
+  - from: "triage"
+    condition:
+      input: "context:triage.final_answer"
+      routes:
+        "OUT_OF_SCOPE": "end"
+        "default_route": "build"
+  - from: "build"
+    to: "end"
+
+flow:
+  entry_point: "triage"
+
+prompts:
+  - prompt_id: "sitekeeper_triage"
+    name: "SiteKeeper triage"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You maintain a small business's website for a web agency. The site is plain
+        HTML in site/. Owners write requests in everyday words ("change our Saturday
+        hours", "add a Christmas closure banner", "our new phone number is ...").
+        Read the issue and its notes, then read the files the change touches.
+        Write a short plan: which files change, the exact new text, and every place
+        the same fact appears (a phone number or opening hours usually appear in the
+        header, footer, contact page AND the JSON-LD block - all must change together).
+        Post the plan as a note on the issue in plain words the owner understands.
+        If the request is not a website change (a refund, a legal question, anything
+        that needs the owner's judgement), post a note saying a person will pick it
+        up and answer with exactly OUT_OF_SCOPE.
+      user: |
+        Project: {{project_id}}
+        Request: {{request}}
+    params:
+      timeout: 180
+
+  - prompt_id: "sitekeeper_build"
+    name: "SiteKeeper build"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You implement one website change end to end, with no human in the loop.
+        1. Create a branch sitekeeper/issue-<issue number> from the default branch.
+        2. Make the change exactly as planned. Keep every copy of a fact consistent
+           (page text, tel: links, footer, JSON-LD). Do not touch checks/, scripts/
+           or .gitlab-ci.yml.
+        3. Run `node checks/sitecheck.mjs site` and `node --test checks/sitecheck.test.mjs`.
+           Fix every error sitecheck reports in the files you touched, and re-run
+           until both pass. Never weaken a check to make it pass.
+        4. Commit with a message naming the issue, push the branch, and open a merge
+           request whose description says what changed and "Closes #<issue number>".
+        5. Run `glab mr merge <mr number> --auto-merge --yes` so it merges itself the
+           moment the pipeline (tests, secret detection, SAST, preview verify) passes.
+           The pipeline then deploys, health-checks the live site and rolls back on
+           its own.
+        6. Post a note on the issue for the owner: the MR link, what will change on
+           the site, and that it goes live automatically once checks pass.
+        End with a one-line summary.
+      user: |
+        Request: {{request}}
+        Plan: {{plan}}
+    params:
+      timeout: 600

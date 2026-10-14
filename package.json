@@ -1,0 +1,11 @@
+{
+  "name": "sitekeeper",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "check": "node checks/sitecheck.mjs site",
+    "test": "node --test checks/sitecheck.test.mjs",
+    "build": "node scripts/build.mjs site public"
+  }
+}

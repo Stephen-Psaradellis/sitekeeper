@@ -1,0 +1,108 @@
+# SiteKeeper - fix: whenever a pipeline fails (a sitecheck error, a secret or
+# SAST finding, a failed preview or live health check), an agent reads the
+# failing jobs, fixes the cause and pushes - again with nobody in the middle.
+#
+# Trigger: the pipeline-failed event (GitLab 18.9+), or mention the service
+# account on the merge request. On the default branch the rollback job has
+# already restored the last good site, so this flow opens a NEW fix MR.
+version: "v1"
+environment: ambient
+
+components:
+  - name: "diagnose"
+    type: AgentComponent
+    prompt_id: "sitekeeper_diagnose"
+    inputs:
+      - from: "context:goal"
+        as: "event"
+      - from: "context:project_id"
+        as: "project_id"
+    max_cycles: 15
+    toolset:
+      - "get_pipeline_failing_jobs"
+      - "get_job_logs"
+      - "get_merge_request"
+      - "list_merge_request_diffs"
+      - "list_vulnerabilities"
+      - "get_repository_file"
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
+
+  - name: "repair"
+    type: AgentComponent
+    prompt_id: "sitekeeper_repair"
+    inputs:
+      - from: "context:goal"
+        as: "event"
+      - from: "context:diagnose.final_answer"
+        as: "diagnosis"
+    max_cycles: 40
+    toolset:
+      - "read_file"
+      - "list_dir"
+      - "find_files"
+      - "edit_file"
+      - "run_command"
+      - "run_git_command"
+      - "create_merge_request"
+      - "create_merge_request_note"
+      - "create_issue_note"
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
+
+routers:
+  - from: "diagnose"
+    condition:
+      input: "context:diagnose.final_answer"
+      routes:
+        "INFRA": "end"
+        "default_route": "repair"
+  - from: "repair"
+    to: "end"
+
+flow:
+  entry_point: "diagnose"
+
+prompts:
+  - prompt_id: "sitekeeper_diagnose"
+    name: "SiteKeeper diagnose"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        A SiteKeeper pipeline failed. List its failing jobs and read their logs.
+        Classify the cause and name the exact file and line to change:
+        - sitecheck / preview-verify / live-health: a site defect (untappable phone,
+          phone mismatch between links and JSON-LD, broken link, missing label...).
+        - secret_detection: a credential was committed. The fix removes it from the
+          file; say plainly in the note that the credential must be rotated by its
+          owner, because removing it from the file does not un-leak it.
+        - sast: a code finding in scripts/ or checks/.
+        - unit-tests: a regression in the checker.
+        If the failure is a runner or network outage rather than the code, answer
+        with exactly INFRA (a retry, not a code change, fixes it).
+      user: |
+        Project: {{project_id}}
+        Event: {{event}}
+    params:
+      timeout: 180
+
+  - prompt_id: "sitekeeper_repair"
+    name: "SiteKeeper repair"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        Fix the diagnosed failure with the smallest correct change.
+        - If the failure is on a merge request branch, check that branch out, fix,
+          and push to it; the merge request's auto-merge finishes the job.
+        - If it is on the default branch (the live site was rolled back), branch
+          sitekeeper/fix-<pipeline id>, fix, push, open a merge request and run
+          `glab mr merge <mr number> --auto-merge --yes`.
+        Before pushing, run `node checks/sitecheck.mjs site` and
+        `node --test checks/sitecheck.test.mjs` until both pass. Never weaken,
+        skip or delete a check, test or pipeline job to get a green pipeline.
+        Finish with a note on the merge request (and on the original issue when
+        the description names one): what broke, what you changed, and that the
+        site was kept on its last good version meanwhile.
+      user: |
+        Event: {{event}}
+        Diagnosis: {{diagnosis}}
+    params:
+      timeout: 600
