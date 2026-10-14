@@ -70,6 +70,10 @@ node scripts/smoke.mjs http://localhost:8080 --version local
 ## Set it up on GitLab
 
 1. Fork or import this project; Pages publishes on the first default-branch pipeline.
+   Then Settings > General > Visibility > Pages: **Everyone**. An imported project can
+   start with Pages access private, which makes every anonymous GET a 302 to the
+   gitlab.io sign-in, so `live-health` times out and the pipeline rolls back a good
+   deploy. On gitlab.com, CI jobs also need the account's identity verified once.
 2. AI > Flows > New flow: paste `.gitlab/duo/flows/sitekeeper-ship.yml`, enable it in
    the project, add the assign/mention trigger. Repeat for `sitekeeper-fix.yml` with
    the pipeline-failed trigger. Both flows run on the default flow image (git, glab
