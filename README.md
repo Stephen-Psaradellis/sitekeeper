@@ -2,7 +2,8 @@
 
 **A small business writes "our Saturday hours are now 8 to 2" in an issue. The next
 time anyone looks, the site is live with the change - tested, scanned, verified,
-deployed and health-checked - and nobody touched it.**
+deployed and health-checked - and the only human act after the issue is one
+"merge when pipeline succeeds" click.**
 
 Built for the GitLab "Life After Code" hackathon (Path A, hands-off) on the GitLab
 Duo Agent Platform.
@@ -23,17 +24,18 @@ links. Each one costs the business calls.
 owner writes an issue
   -> Duo flow "ship"   triage: reads the issue + the site, posts a plain-English plan
                        build: branch, edit every copy of the fact, run sitecheck +
-                              tests locally, push, open MR "Closes #n", set auto-merge
+                              tests locally, push, open MR "Closes #n"
   -> MR pipeline       unit tests | sitecheck (Code Quality + test report inline)
                        | secret detection | SAST | build | preview-verify
                        (serves the exact artifact, smoke-tests every page)
-  -> auto-merge        the moment the pipeline is green
+  -> one owner click    "merge when pipeline succeeds"; it merges the moment the
+                       pipeline is green (see "Why one click" below)
   -> main pipeline     deploy to GitLab Pages (environment: production)
                        live-health: waits for Pages to publish THIS commit, proves
                        every page is 200, carries this build's version, has a tel: link
                        rollback: on a failed live check, republishes the previous commit
   -> Duo flow "fix"    on any failed pipeline: reads failing jobs + logs, fixes the
-                       cause on a branch, pushes, auto-merges, explains on the MR/issue
+                       cause on a branch, pushes, opens the MR, explains on the MR/issue
   -> daily schedule    monitor-live re-checks the live site
 ```
 
@@ -86,6 +88,16 @@ node scripts/smoke.mjs http://localhost:8080 --version local
 3. Build > Pipeline schedules: a daily schedule on the default branch runs `monitor-live`.
 4. Open an issue such as "Our new phone number is 217-555-0199" and assign it to the
    `ship` flow's service account.
+
+## Why one click
+
+The flows' own token cannot arm a merge: GitLab answers `403 insufficient_scope`, and no
+Duo tool sets "merge when pipeline succeeds". So the owner makes one click on the MR, and
+everything before and after it is automatic. We kept it that way on purpose - an agent
+should not merge to a customer's production site without the customer's yes. If you want
+zero clicks, add a project access token (api scope) as a masked CI variable and a job
+that arms the merge on `sitekeeper/*` branches; that token is the one secret this repo
+does not ask you for.
 
 ## Known limitations
 
