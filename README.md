@@ -2,8 +2,7 @@
 
 **A small business writes "our Saturday hours are now 8 to 2" in an issue. The next
 time anyone looks, the site is live with the change - tested, scanned, verified,
-deployed and health-checked - and the only human act after the issue is one
-"merge when pipeline succeeds" click.**
+deployed and health-checked - and nobody touched it after the issue.**
 
 Built for the GitLab "Life After Code" hackathon (Path A, hands-off) on the GitLab
 Duo Agent Platform.
@@ -28,8 +27,9 @@ owner writes an issue
   -> MR pipeline       unit tests | sitecheck (Code Quality + test report inline)
                        | secret detection | SAST | build | preview-verify
                        (serves the exact artifact, smoke-tests every page)
-  -> one owner click    "merge when pipeline succeeds"; it merges the moment the
-                       pipeline is green (see "Why one click" below)
+  -> arm-merge         the MR pipeline arms "merge when pipeline succeeds" on the
+                       flow's own MR, so it merges the moment it is green
+                       (see "Hands-off merge" below)
   -> main pipeline     deploy to GitLab Pages (environment: production)
                        live-health: waits for Pages to publish THIS commit, proves
                        every page is 200, carries this build's version, has a tel: link
@@ -53,6 +53,7 @@ scheduled monitoring, and a summary back to the owner on their issue.
 | `checks/sitecheck.test.mjs` | its tests (`node --test`) |
 | `scripts/build.mjs` | copies `site/` to `public/`, stamps the commit into every page |
 | `scripts/serve.mjs`, `scripts/smoke.mjs` | pre-production server and the smoke/health check |
+| `scripts/arm-merge.mjs` | the `arm-merge` job: sets merge-when-pipeline-succeeds on the flows' MRs, pinned to the tested sha |
 | `.gitlab-ci.yml` | the pipeline above |
 | `.gitlab/duo/flows/` | the two Duo Agent Platform flows (`ship`, `fix`) |
 | `scripts/check_duo_flows.py` | checks both flows against GitLab ai-assist's own flow models and tool list (how to run: its docstring) |
@@ -85,19 +86,23 @@ node scripts/smoke.mjs http://localhost:8080 --version local
    answer with one fixed line (`SCOPE: out_of_scope`, `CAUSE: infra`) and the
    second agent's first instruction is to stop on that line: an out-of-scope
    request or a runner outage is never built or repaired.
+   Then add the merge token described under "Hands-off merge" below.
 3. Build > Pipeline schedules: a daily schedule on the default branch runs `monitor-live`.
 4. Open an issue such as "Our new phone number is 217-555-0199" and assign it to the
    `ship` flow's service account.
 
-## Why one click
+## Hands-off merge
 
 The flows' own token cannot arm a merge: GitLab answers `403 insufficient_scope`, and no
-Duo tool sets "merge when pipeline succeeds". So the owner makes one click on the MR, and
-everything before and after it is automatic. We kept it that way on purpose - an agent
-should not merge to a customer's production site without the customer's yes. If you want
-zero clicks, add a project access token (api scope) as a masked CI variable and a job
-that arms the merge on `sitekeeper/*` branches; that token is the one secret this repo
-does not ask you for.
+Duo tool sets "merge when pipeline succeeds". So the pipeline does it: the `arm-merge` job
+runs on MR pipelines from `sitekeeper/*` branches into the default branch and arms the
+merge, pinned to the commit that pipeline is testing (a later push has to pass again).
+It needs an access token with `api` scope as the CI/CD variable `SITEKEEPER_MERGE_TOKEN`
+(masked, not protected - the flows' branches are not protected). That token is the one
+secret this repo asks you for. Leave it out and the job does not run: each MR then waits
+for one "merge when pipeline succeeds" click from the owner, and everything before and
+after that click is still automatic - a deliberate option for owners who want to say
+yes before anything reaches their production site.
 
 ## Known limitations
 

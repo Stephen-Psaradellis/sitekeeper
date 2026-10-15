@@ -60,6 +60,19 @@ sitecheck:
       junit: sitecheck.xml
       codequality: gl-code-quality-report.json
 
+# Hands-off merge: on the Duo flows' own MRs (sitekeeper/* branches into the
+# default branch), arm "merge when the pipeline succeeds" so a green pipeline
+# merges with nobody in the middle. The flow's token cannot do this itself, so it
+# uses SITEKEEPER_MERGE_TOKEN; without that variable the job does not run and the
+# MR waits for one click. A failure here never blocks the pipeline.
+arm-merge:
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^sitekeeper\// && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH && $SITEKEEPER_MERGE_TOKEN
+  allow_failure: true
+  script:
+    - node scripts/arm-merge.mjs
+
 build:
   stage: build
   extends: .not_scheduled

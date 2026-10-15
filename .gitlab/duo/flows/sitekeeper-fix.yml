@@ -92,8 +92,8 @@ prompts:
         - If the failure is on a merge request branch, check that branch out, fix,
           and push to it; the merge request's auto-merge finishes the job.
         - If it is on the default branch (the live site was rolled back), branch
-          sitekeeper/fix-<pipeline id>, fix, push, open a merge request and run
-          `glab mr merge <mr number> --auto-merge --yes`.
+          sitekeeper/fix-<pipeline id>, fix, push and open a merge request; its
+          pipeline's arm-merge job sets auto-merge, so do not merge it yourself.
         Before pushing, run `node checks/sitecheck.mjs site` and
         `node --test checks/sitecheck.test.mjs` until both pass. Never weaken,
         skip or delete a check, test or pipeline job to get a green pipeline.

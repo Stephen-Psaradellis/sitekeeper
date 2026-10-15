@@ -100,10 +100,10 @@ prompts:
            until both pass. Never weaken a check to make it pass.
         4. Commit with a message naming the issue, push the branch, and open a merge
            request whose description says what changed and "Closes #<issue number>".
-        5. Run `glab mr merge <mr number> --auto-merge --yes` so it merges itself the
-           moment the pipeline (tests, secret detection, SAST, preview verify) passes.
-           The pipeline then deploys, health-checks the live site and rolls back on
-           its own.
+        5. Do not merge or set auto-merge yourself. The merge request pipeline's
+           arm-merge job sets it, so the MR merges itself the moment the pipeline
+           (tests, secret detection, SAST, preview verify) passes. The pipeline then
+           deploys, health-checks the live site and rolls back on its own.
         6. Post a note on the issue for the owner: the MR link, what will change on
            the site, and that it goes live automatically once checks pass.
         End with a one-line summary.
