@@ -12,13 +12,11 @@ components:
   - name: "diagnose"
     type: AgentComponent
     prompt_id: "sitekeeper_diagnose"
-    response_schema_id: "sitekeeper_diagnosis"
     inputs:
       - from: "context:goal"
         as: "event"
       - from: "context:project_id"
         as: "project_id"
-    max_cycles: 15
     toolset:
       - "get_pipeline_failing_jobs"
       - "get_job_logs"
@@ -36,7 +34,6 @@ components:
         as: "event"
       - from: "context:diagnose.final_answer"
         as: "diagnosis"
-    max_cycles: 40
     toolset:
       - "read_file"
       - "list_dir"
@@ -49,41 +46,9 @@ components:
       - "create_issue_note"
     ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
 
-response_schemas:
-  - schema_id: "sitekeeper_diagnosis"
-    definition:
-      "$schema": "http://json-schema.org/draft-07/schema#"
-      title: "sitekeeper_diagnosis"
-      type: object
-      properties:
-        cause:
-          type: string
-          enum: ["site_defect", "secret", "sast", "unit_test", "infra"]
-          description: "What made the pipeline fail; infra ends the flow"
-        pipeline_id:
-          type: string
-          description: "The failed pipeline's id"
-        branch:
-          type: string
-          description: "The branch the failed pipeline ran on"
-        file:
-          type: string
-          description: "The file to change (empty for infra)"
-        line:
-          type: integer
-          description: "The line to change (0 when unknown)"
-        summary:
-          type: string
-          description: "What broke and the smallest correct fix, in plain words"
-      required: [cause, pipeline_id, branch, file, summary]
-
 routers:
   - from: "diagnose"
-    condition:
-      input: "context:diagnose.final_answer.cause"
-      routes:
-        "infra": "end"
-        "default_route": "repair"
+    to: "repair"
   - from: "repair"
     to: "end"
 
@@ -107,6 +72,9 @@ prompts:
         - unit_test (unit-tests): a regression in the checker.
         - infra: a runner or network outage rather than the code (a retry, not a
           code change, fixes it). Nothing is repaired.
+        Your final answer starts with exactly one line, `CAUSE: <one of the five>`,
+        then `PIPELINE: <id>`, `BRANCH: <branch>`, `FILE: <path or none>`,
+        `LINE: <number or 0>`, and a plain-words summary of the smallest correct fix.
       user: |
         Project: {{project_id}}
         Event: {{event}}
@@ -119,6 +87,8 @@ prompts:
     prompt_template:
       system: |
         Fix the diagnosed failure with the smallest correct change.
+        If the diagnosis's first line is `CAUSE: infra`, change nothing: post a note
+        that it was a runner or network outage and a retry is the fix, then end.
         - If the failure is on a merge request branch, check that branch out, fix,
           and push to it; the merge request's auto-merge finishes the job.
         - If it is on the default branch (the live site was rolled back), branch
