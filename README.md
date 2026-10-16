@@ -11,11 +11,13 @@ Duo Agent Platform.
 
 Most small-business websites are kept by one-person web agencies juggling dozens of
 clients. Every "change our phone number" email is ten minutes of manual work, and the
-mistakes are always the same. We scanned 43,000 real local-business sites: the
-defects that keep coming back are phone numbers you cannot tap on a phone, a phone
-number that differs between the page and the Google-facing structured data, no
-mobile viewport, broken JSON-LD, mixed http content, unlabelled form fields and dead
-links. Each one costs the business calls.
+mistakes are always the same. In October 2026 we scanned 29,412 real local-business
+sites (27,784 answered): images with no alt text (32% of sites), no meta description
+(20%), a phone number you cannot tap on a phone (14%), dead links (6%) and no mobile
+viewport (4%) keep coming back. `sitecheck` tests for those, plus what a hand edit
+introduces: a phone number that differs between the page and the Google-facing
+structured data, broken JSON-LD, mixed http content and unlabelled form fields.
+Each one costs the business calls.
 
 ## What happens, end to end
 

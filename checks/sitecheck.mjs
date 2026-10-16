@@ -5,7 +5,7 @@
 //   node checks/sitecheck.mjs <dir> [--format text|json|junit|codequality] [--out file]
 //
 // Exit 1 when any finding has severity "error"; warnings never fail the build.
-// The rules come from scanning 43k real local-business sites: these are the
+// The rules come from scanning 29k real local-business sites: these are the
 // defects that showed up most and that a visitor actually feels.
 
 import { readFileSync, readdirSync, statSync, writeFileSync, existsSync } from "node:fs";
